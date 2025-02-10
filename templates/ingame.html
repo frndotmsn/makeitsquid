@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <div class="left-sidebar">
+        <div class="players-last-action">
+
+        </div>
+    </div>
+    <main>
+        <img class="meme" src="{ image_uri }" alt="Squid game meme">
+        <div class="reroll-section">
+            <span>{ remaining_rerolls } Rerolls remaining</span>
+            <form action="" method="post">
+                <button type="submit">
+                    <span>&#x1F3B2; Reroll</span>
+                </button>
+            </form>
+        </div>
+        <form action="" method="post" class="label-inputs" target="_blank">
+        {{ for i in 1..=no_of_labels }}
+            <input type="text" name="label-{{ i }}" id="">    
+        {{ endfor }}
+        <button type="submit">Submit</button>
+        </form>
+    </main>
+</body>
+</html>

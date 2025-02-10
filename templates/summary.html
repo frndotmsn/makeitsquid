@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <main>
+        <div class="top-3">
+            
+        </div>
+        <div>
+            <form action="">
+                <button type="submit">Return to Lobby</button>
+            </form>
+        </div>
+        <ul class="memes-descending-order">
+        {{ for meme in sorted_memes }}
+            <li>
+                <img src="{ meme.uri }" alt="Meme">
+                <span>{ meme.points } points</span>
+            </li>
+        {{ endfor }}
+        </ul>
+    </main>
+
+    <div class="right-sidebar desktop-only">
+        <ol class="scoreboard">
+        {{ for player in players }}
+            <li>
+                <span>{ player.name }</span>
+                <span>{ player.points }</span>
+            </li>
+        {{ endfor }}            
+        </ol>
+    </div>
+</body>
+</html>

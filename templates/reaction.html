@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <main>
+        <img src="{ current_meme_uri }" alt="Current meme">
+        <div class="controls">
+            <form action="/downvote" method="post">
+                <button type="submit">
+                    <span>Upvote</span>
+                </button>
+            </form>
+            <form action="/upvote" method="post">
+                <button type="submit">
+                    <span>Downvote</span>
+                </button>
+            </form>
+        </div>
+        <form action="/next" method="post">
+            <button type="submit">Next</button>
+        </form>
+    </main>
+</body>
+</html>

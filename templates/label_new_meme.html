@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <div class="meme-preview">
+        <img src="{ preview.image_uri }" alt="Meme">
+    </div>
+    <form action="/new_label">
+        <button type="submit">Add Label</button>
+    </form>
+    <form action="/remove_label">
+        <button type="submit">Remove Label</button>
+    </form>
+    <form action="/update_preview">
+        <button type="submit">Update Preview</button>
+    </form>
+    <form action="/labelling_completed">
+        <button type="submit">Done</button>
+    </form>
+    <form action="/cancel_labelling">
+        <button type="submit">Cancel Changes</button>
+    </form>
+</body>
+</html>

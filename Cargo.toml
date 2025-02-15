@@ -8,9 +8,11 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.95"
 axum = { version = "0.8.1", features = ["form"] }
+jsonwebtoken = "9.3.1"
 serde = { version = "1.0.217", features = ["serde_derive"] }
 tinytemplate = "1.2.1"
 tokio = { version = "1.43.0", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["fs"] }
 tower-sessions = "0.14.0"
+uuid = { version = "1.13.1", features = ["v4"] }

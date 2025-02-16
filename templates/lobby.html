@@ -6,8 +6,18 @@
     <title>Document</title>
 </head>
 <body>
-    <p>YOur Name: { player_name }</p>
-    <a href="">Start</a>
+    <p>Players</p>
+    <ul>
+    {{ for player in players }}
+        <li>
+            {{ if player.is_logged_in_user }}
+            <span>You: </span>
+            {{ endif }}
+            <span>{ player.name }</span>
+        </li>
+    {{ endfor }}
+    </ul>
+    <a href="/ingame">Start</a>
     <a href="/gallery">View Gallery</a>
     <div class="player-icons"><img src="" alt=""><img src="" alt=""><img src="" alt=""><img src="" alt=""><img src="" alt=""></div>
 </body>

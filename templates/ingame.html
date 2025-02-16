@@ -12,20 +12,20 @@
         </div>
     </div>
     <main>
-        <img class="meme" src="{ image_uri }" alt="Squid game meme">
+        <img class="meme-template" src="{ template_image_uri }" alt="Squid game meme template">
         <div class="reroll-section">
             <span>{ remaining_rerolls } Rerolls remaining</span>
-            <form action="" method="post">
+            <form action="/reroll" method="post">
                 <button type="submit">
                     <span>&#x1F3B2; Reroll</span>
                 </button>
             </form>
         </div>
         <form action="" method="post" class="label-inputs" target="_blank">
-        {{ for i in 1..=no_of_labels }}
-            <input type="text" name="label-{{ i }}" id="">    
+        {{ for i in labels }}
+            <input type="text" name="label-{ i }" id="">    
         {{ endfor }}
-        <button type="submit">Submit</button>
+            <button type="submit">Submit</button>
         </form>
     </main>
 </body>

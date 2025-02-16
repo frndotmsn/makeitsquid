@@ -1,10 +1,13 @@
-use std::{collections::HashMap, sync::{Arc, LazyLock, Mutex}};
+use std::{collections::HashMap, mem, sync::{Arc, LazyLock, Mutex}};
 
 use axum::{extract::FromRequestParts, http::StatusCode, response::{Html, IntoResponse, Redirect}, routing::{get, post}, Form, Router
 };
 
+use logged_in_player::LoggedInPlayer;
+use player::Player;
+use player_manager::PlayerManager;
 use serde::Deserialize;
-use templates::{index::IndexTemplateContext, lobby::LobbyTemplateContext};
+use templates::{index::IndexTemplateContext, lobby::{LobbyTemplateContext, PlayerHTMLInfo}, ingame::IngameTemplateContext};
 use tinytemplate::TinyTemplate;
 use tower_http::services::ServeDir;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
@@ -12,6 +15,9 @@ use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 mod templates;
 mod unlabeled_meme;
 mod labeled_meme;
+mod player_manager;
+mod logged_in_player;
+mod player;
 
 #[tokio::main]
 async fn main() {
@@ -25,6 +31,8 @@ async fn main() {
                         .route("/", get(index))
                         .route("/join_lobby", post(join_lobby))
                         .route("/lobby", get(lobby))
+                        .route("/ingame", get(ingame))
+                        .route("/reroll", post(reroll))
                         .nest_service("/public", ServeDir::new("public"))
                         .layer(session_layer);
 
@@ -37,6 +45,7 @@ fn get_tt() -> TinyTemplate<'static> {
     let mut tt = TinyTemplate::new();
     tt.add_template("index.html", include_str!(r"..\templates\index.html")).unwrap();
     tt.add_template("lobby.html", include_str!(r"..\templates\lobby.html")).unwrap();
+    tt.add_template("ingame.html", include_str!(r"..\templates\ingame.html")).unwrap();
     tt
 }
 
@@ -68,75 +77,17 @@ impl JoinLobbyPayload {
     }
 }
 
-#[derive(Clone)]
-struct Player {
-    id: String,
-    name: String,
-}
-
-impl Player {
-    fn new_guest(name: String) -> Player {
-        Player {
-            id: uuid::Uuid::new_v4().to_string(),
-            name
-        }
-    }
-}
-
 static PLAYERS_IN_LOBBY: LazyLock<Arc<Mutex<HashMap<String, Player>>>> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
-
-const PLAYER_ID_KEY: &'static str = "player.id";
 
 fn get_player_by_id(id: String) -> Option<Player> {
     PLAYERS_IN_LOBBY.lock().unwrap().get(&id).cloned()
-}
-
-struct PlayerManager(Session);
-
-impl PlayerManager {
-    async fn sign_in_as_guest(&self, name: String) {
-        let player = Player::new_guest(name);
-        self.0.insert(PLAYER_ID_KEY, player.id.clone()).await.unwrap();
-        PLAYERS_IN_LOBBY.lock().unwrap().insert(player.id.clone(), player);
-    }
-}
-
-impl<S> FromRequestParts<S> for PlayerManager
-where
-    S: Send + Sync,
-{
-    type Rejection = (StatusCode, &'static str);
-
-    async  fn from_request_parts(parts: &mut axum::http::request::Parts,state: &S,) -> Result<Self,Self::Rejection> {
-        let session: Session = Session::from_request_parts(parts, state).await?;
-        Ok(PlayerManager(session))
-    }
-}
-
-struct LoggedInPlayer(Player);
-
-impl<S> FromRequestParts<S> for LoggedInPlayer
-where
-    S: Send + Sync,
-{
-
-    type Rejection = (StatusCode, &'static str);
-
-    async fn from_request_parts(parts: &mut axum::http::request::Parts,state: &S,) -> Result<Self, Self::Rejection> {
-        let session: Session = Session::from_request_parts(parts, state).await?;
-        let player_id: String = session.get(PLAYER_ID_KEY).await.unwrap().ok_or((StatusCode::BAD_REQUEST, "player not found"))?;
-
-        let player = get_player_by_id(player_id).ok_or((StatusCode::BAD_REQUEST, "player not found"))?;
-        let logged_in_player: LoggedInPlayer = LoggedInPlayer(player);
-        Ok(logged_in_player)
-    }
 }
 
 async fn join_lobby(
     // using axum::extract::Form here, consider using axum_extra::extract::Form
     // 
     // https://docs.rs/axum-extra/0.10.0/axum_extra/extract/struct.Form.html#differences-from-axumextractform
-    player_manager: PlayerManager,
+    player_manager: player_manager::PlayerManager,
     Form(join_lobby_payload): Form<JoinLobbyPayload>,
 ) -> impl IntoResponse {
     let Some(player_name) = join_lobby_payload.player_name_if_valid() else {
@@ -148,11 +99,80 @@ async fn join_lobby(
 }
 
 async fn lobby(
-    LoggedInPlayer(player): LoggedInPlayer
+    LoggedInPlayer(logged_in_player): LoggedInPlayer
 ) -> Html<String> {
+    let players: Vec<PlayerHTMLInfo> = PLAYERS_IN_LOBBY.lock().unwrap()
+        .values()
+        .map(|player|
+            PlayerHTMLInfo::new(player.name.clone(),  player.id == logged_in_player.id)
+        ).collect::<Vec<_>>();
+
     let context = LobbyTemplateContext {
-        player_name: player.name
+        players
     };
     let rendered = TT.with(|tt| tt.render("lobby.html", &context)).unwrap();
     Html(rendered)
+}
+
+#[derive(Clone)]
+struct MemeTemplate {
+    pub id: String,
+    pub uri: String,
+}
+
+impl MemeTemplate {
+    pub fn new(uri: String) -> MemeTemplate {
+        MemeTemplate { id: uuid::Uuid::new_v4().to_string(), uri }
+    }
+}
+
+struct MemeTemplatePool {
+    templates: Vec<MemeTemplate>
+}
+
+impl MemeTemplatePool {
+    pub fn pick_id(&self) -> Option<String> {
+        use rand::seq::IndexedRandom;
+
+        self.templates.choose(&mut rand::rng()).cloned().map(|meme_template| meme_template.id)
+    }
+
+    pub fn pick_omit(&self, meme_template_ids_to_omit: &[String]) -> Option<String> {
+        use rand::seq::IndexedRandom;
+
+        let availible_ids = self.templates.iter().filter_map(|meme_template| if meme_template_ids_to_omit.contains(&meme_template.id) { None } else {Some(meme_template.id.clone()) }).collect::<Vec<_>>();
+        availible_ids.choose(&mut rand::rng()).cloned()
+    }
+}
+
+static MEME_TEMPLATE_POOL: LazyLock<Arc<Mutex<MemeTemplatePool>>> = LazyLock::new(|| Arc::new(Mutex::new(MemeTemplatePool { templates: vec![
+    MemeTemplate::new("https://upload.wikimedia.org/wikipedia/en/3/34/RickAstleyNeverGonnaGiveYouUp7InchSingleCover.jpg".to_owned()),
+    MemeTemplate::new("https://th.bing.com/th/id/OIP.o-KHiUpgsdqVeaG-wkhfnwHaEK?rs=1&pid=ImgDetMain".to_owned()),
+    MemeTemplate::new("https://th.bing.com/th/id/OIP.WOki_Ng83gsk1xioaX3BPgHaG8?rs=1&pid=ImgDetMain".to_owned()),
+    ]
+})));
+
+async fn ingame(
+    player_manager: PlayerManager,
+) -> Html<String> {
+
+    let no_of_labels = 2;
+    let labels = (1..=no_of_labels).into_iter().collect::<Box<[i32]>>();
+
+    let template_image_uri = player_manager.get_meme_template_for_user().await.uri;
+
+    let context = IngameTemplateContext {
+        remaining_rerolls: 3,
+        template_image_uri,
+        labels,
+    };
+    let rendered = TT.with(|tt| tt.render("ingame.html", &context)).unwrap();
+    Html(rendered)
+}
+
+async fn reroll(
+    player_manager: PlayerManager,
+) -> impl IntoResponse {
+    player_manager.reroll_meme_template().await;
+    return Redirect::to("/ingame");
 }

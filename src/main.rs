@@ -74,9 +74,9 @@ async fn main() {
 
 fn get_tt() -> TinyTemplate<'static> {
     let mut tt = TinyTemplate::new();
-    tt.add_template("index.html", include_str!(r"..\templates\index.html")).unwrap();
-    tt.add_template("lobby.html", include_str!(r"..\templates\lobby.html")).unwrap();
-    tt.add_template("ingame.html", include_str!(r"..\templates\ingame.html")).unwrap();
+    tt.add_template("index.html", include_str!(r"../templates/index.html")).unwrap();
+    tt.add_template("lobby.html", include_str!(r"../templates/lobby.html")).unwrap();
+    tt.add_template("ingame.html", include_str!(r"../templates/ingame.html")).unwrap();
     tt
 }
 

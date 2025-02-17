@@ -1,17 +1,16 @@
-use axum::{extract::FromRequestParts, http::StatusCode};
+use std::sync::Arc;
 
-use crate::{player_manager::PlayerManager, Player};
+use axum::extract::FromRequestParts;
+use crate::{app_error::AppError, app_state::AppState, player_manager::PlayerManager, Player};
 
 pub struct LoggedInPlayer(pub Player);
 
-impl<S> FromRequestParts<S> for LoggedInPlayer
-where
-    S: Send + Sync,
+impl FromRequestParts<Arc<AppState>> for LoggedInPlayer
 {
 
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut axum::http::request::Parts,state: &S,) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut axum::http::request::Parts,state: &Arc<AppState>,) -> Result<Self, Self::Rejection> {
         let player_manager = PlayerManager::from_request_parts(parts, state).await?;
 
         let player = player_manager.get_logged_in_player().await?;

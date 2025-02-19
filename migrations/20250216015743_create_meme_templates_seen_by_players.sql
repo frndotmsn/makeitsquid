@@ -9,4 +9,4 @@ CREATE TABLE meme_templates_seen_by_players (
     FOREIGN KEY (player_id)
         REFERENCES players(id)
         ON DELETE CASCADE
-)
+);

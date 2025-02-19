@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use app_error::AppError;
 use app_state::AppState;
 use axum::{response::{Html, IntoResponse, Redirect}, routing::{get, post}, Form, Router
@@ -12,7 +12,7 @@ use dto::{meme_template::MemeTemplate, player::Player};
 use logged_in_player::LoggedInPlayer;
 use player_manager::PlayerManager;
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use templates::{index::IndexTemplateContext, lobby::{LobbyTemplateContext, PlayerHTMLInfo}, ingame::IngameTemplateContext};
 use tinytemplate::TinyTemplate;
 use tower_http::services::ServeDir;
@@ -25,28 +25,29 @@ mod dto;
 mod app_state;
 mod app_error;
 
-#[tokio::main]
-async fn main() {
-    let database_connection_pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+async fn construct_database_connection_pool() -> anyhow::Result<PgPool> {
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let database_connection_pool = PgPool::connect(&database_url)
+        .await
+        .context("failed to connect to database")?;
+    Ok(database_connection_pool)
+}
+
+async fn init_database_connection_pool() -> anyhow::Result<PgPool> {
+    let database_connection_pool = construct_database_connection_pool().await?;
+
     sqlx::migrate!()
         .run(&database_connection_pool)
         .await
-        .unwrap();
+        .context("couldn't migrate database")?;
+    Ok(database_connection_pool)
+}
 
-    let uris_of_meme_templates_to_insert = [
-        "https://upload.wikimedia.org/wikipedia/en/3/34/RickAstleyNeverGonnaGiveYouUp7InchSingleCover.jpg",
-        "https://th.bing.com/th/id/OIP.o-KHiUpgsdqVeaG-wkhfnwHaEK?rs=1&pid=ImgDetMain",
-        "https://th.bing.com/th/id/OIP.WOki_Ng83gsk1xioaX3BPgHaG8?rs=1&pid=ImgDetMain",
-        ];
-    
-    for meme_template_uri in uris_of_meme_templates_to_insert {
-        sqlx::query("INSERT INTO meme_templates (uri) VALUES ($1)")
-            .bind(meme_template_uri)
-            .execute(&database_connection_pool)
-            .await
-            .unwrap();
-    }
-    
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let database_connection_pool = init_database_connection_pool().await?;
+
     // no memstore in prod for serverless
     let session_store = MemoryStore::default();
     // much more setup in prod
@@ -68,8 +69,9 @@ async fn main() {
                 .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
+    Ok(())
 }
 
 fn get_tt() -> TinyTemplate<'static> {
@@ -177,15 +179,11 @@ async fn reroll(
 
 #[tokio::test]
 async fn test_db() {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-
-    sqlx::migrate!()
-        .run(&pool)
-        .await.unwrap();
+    let database_connection_pool = init_database_connection_pool().await.unwrap();
 
     let player: dto::player::Player = sqlx::query_as("INSERT INTO players (name) VALUES ($1) RETURNING *")
         .bind("nijo")
-        .fetch_one(&pool)
+        .fetch_one(&database_connection_pool)
         .await.unwrap();
 
     assert_eq!(player.name, "nijo");
@@ -193,14 +191,14 @@ async fn test_db() {
 
     let meme_template: dto::meme_template::MemeTemplate = sqlx::query_as("INSERT INTO meme_templates (uri) VALUES ($1) RETURNING *")
         .bind("https://wikipedia.org/favicon.ico")
-        .fetch_one(&pool)
+        .fetch_one(&database_connection_pool)
         .await.unwrap();
 
     assert_eq!(meme_template.uri, "https://wikipedia.org/favicon.ico");
 
     let meme_templates_seen_by_player: Option<dto::meme_templates_seen_by_player::MemeTemplatesSeenByPlayer> = sqlx::query_as("SELECT * FROM meme_templates_seen_by_players WHERE player_id = $1 LIMIT 1")
         .bind(player.id)
-        .fetch_optional(&pool)
+        .fetch_optional(&database_connection_pool)
         .await
         .unwrap();
     assert!(meme_templates_seen_by_player.is_none());
@@ -208,13 +206,13 @@ async fn test_db() {
     let meme_templates_seen_by_player: dto::meme_templates_seen_by_player::MemeTemplatesSeenByPlayer = sqlx::query_as("INSERT INTO meme_templates_seen_by_players (player_id, meme_template_id) VALUES ($1, $2) RETURNING *")
         .bind(player.id)
         .bind(meme_template.id)
-        .fetch_one(&pool)
+        .fetch_one(&database_connection_pool)
         .await
         .unwrap();
 
     let meme_templates_seen_by_player_new: dto::meme_templates_seen_by_player::MemeTemplatesSeenByPlayer = sqlx::query_as("SELECT * FROM meme_templates_seen_by_players WHERE player_id = $1 LIMIT 1")
         .bind(player.id)
-        .fetch_one(&pool)
+        .fetch_one(&database_connection_pool)
         .await
         .unwrap();
     assert_eq!(meme_templates_seen_by_player.meme_template_id, meme_templates_seen_by_player_new.meme_template_id);

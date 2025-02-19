@@ -2,17 +2,17 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::extract::FromRequestParts;
-use sqlx::{error::{DatabaseError, ErrorKind}, sqlite::SqliteError, Sqlite, SqlitePool};
+use sqlx::{error::ErrorKind, PgPool};
 use tower_sessions::Session;
 
 use crate::{app_error::AppError, app_state::AppState, MemeTemplate, Player};
 
 pub struct PlayerManager {
     session: Session,
-    database_connection_pool: sqlx::Pool<Sqlite>
+    database_connection_pool: PgPool,
 }
 
-async fn select_new_meme_template(database_connection_pool: &sqlx::Pool<Sqlite>, player_id: i32) -> anyhow::Result<Option<i32>> {
+async fn select_new_meme_template(database_connection_pool: &PgPool, player_id: i32) -> anyhow::Result<Option<i32>> {
     // TODO: exclude meme templaces being labelled by other users and the previous one!
     // selects meme_templates being currently labelled by users
     // also includes the meme_template being labelled by the current user
@@ -33,19 +33,28 @@ async fn select_new_meme_template(database_connection_pool: &sqlx::Pool<Sqlite>,
     // INNER JOIN because we need the values to match!
     // we need to use a subquery for the except clause as well
     // see https://www.sqlite.org/lang_select.html#compound
+    // doesnt work as expected with postgresql!
+    // meme_templates arent omitted when they should be!
     let new_meme_template_id: Option<i32> = sqlx::query_scalar("
-        SELECT (id)
-        FROM (SELECT (id) FROM meme_templates
-            EXCEPT SELECT (id) FROM
-            (SELECT (meme_templates.id) FROM meme_templates
-            INNER JOIN players
-            ON players.selected_meme_template_id = meme_templates.id
-            UNION
-            SELECT (meme_templates.id) FROM meme_templates_seen_by_players
-            INNER JOIN meme_templates
-            ON meme_templates_seen_by_players.meme_template_id = meme_templates.id
-            WHERE meme_templates_seen_by_players.player_id = $1)
-        ) ORDER BY RANDOM() LIMIT 1")
+        SELECT main_query.id
+        FROM (
+            SELECT id
+            FROM meme_templates
+            EXCEPT
+            SELECT meme_templates_to_omit.id
+            FROM (
+                SELECT meme_templates.id
+                FROM meme_templates
+                INNER JOIN players
+                ON players.selected_meme_template_id = meme_templates.id
+                UNION
+                SELECT meme_templates.id
+                FROM meme_templates_seen_by_players
+                INNER JOIN meme_templates
+                ON meme_templates_seen_by_players.meme_template_id = meme_templates.id
+                WHERE meme_templates_seen_by_players.player_id = $1
+            ) AS meme_templates_to_omit
+        ) AS main_query ORDER BY RANDOM() LIMIT 1")
         .bind(player_id)
         .fetch_optional(database_connection_pool)
         .await?;
@@ -190,20 +199,18 @@ impl FromRequestParts<Arc<AppState>> for PlayerManager
 
     async  fn from_request_parts(parts: &mut axum::http::request::Parts,state: &Arc<AppState>,) -> Result<Self,Self::Rejection> {
         let session: Session = Session::from_request_parts(parts, state).await.map_err(|_| anyhow!("invalid session"))?;
-        let database_connection_pool: sqlx::Pool<Sqlite> = state.database_connection_pool.clone();
+        let database_connection_pool: PgPool = state.database_connection_pool.clone();
         Ok(PlayerManager { session, database_connection_pool })
     }
 }
 
 #[tokio::test]
 async fn test_pick_meme() {
-    let database_connection_pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    
-    sqlx::migrate!()
-        .run(&database_connection_pool)
-        .await.unwrap();
+    use crate::init_database_connection_pool;
 
-        // due to technical reasons we need a subquery
-        // https://stackoverflow.com/questions/31500558/sqlite-except-order-by-random
+    let database_connection_pool = init_database_connection_pool().await.unwrap();
+
+    // due to technical reasons we need a subquery
+    // https://stackoverflow.com/questions/31500558/sqlite-except-order-by-random
     let _: Option<i32> = select_new_meme_template(&database_connection_pool, 1).await.unwrap();
 }
